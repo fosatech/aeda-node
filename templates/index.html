@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<title>Node Management</title>
+		<style>
+		body {
+			font-family: Arial, sans-serif;
+			max-width: 800px;
+			margin: 0 auto;
+			padding: 20px;
+			background-color: #202020;
+			color: white;
+		}
+		.container {
+			background-color: #101010;
+			color: white;
+			border-radius: 8px;
+			padding: 20px;
+			margin-bottom: 20px;
+		}
+		h1 {
+			color: #ffffff;
+		}
+		input[type="text"] {
+			width: 100%;
+			padding: 8px;
+			margin: 8px 0;
+			box-sizing: border-box;
+			border: 1px solid #ccc;
+			border-radius: 4px;
+		}
+		button {
+			background-color: #4CAF50;
+			color: white;
+			padding: 10px 15px;
+			border: none;
+			border-radius: 4px;
+			cursor: pointer;
+		}
+		button:hover {
+			background-color: #45a049;
+		}
+		button:disabled {
+			background-color: #cccccc;
+			cursor: not-allowed;
+		}
+		#updateButton {
+			background-color: #2196F3;
+		}
+		#updateButton.has-updates {
+			background-color: #4CAF50;
+		}
+		#updateButton:hover {
+			background-color: #0b7dda;
+		}
+		#updateButton.has-updates:hover {
+			background-color: #45a049;
+		}
+		.status {
+			margin-top: 10px;
+			padding: 10px;
+			border-radius: 4px;
+		}
+		.success {
+			background-color: #d4edda;
+			color: #155724;
+		}
+		.error {
+			background-color: #f8d7da;
+			color: #721c24;
+		}
+		.info {
+			background-color: #d1ecf1;
+			color: #0c5460;
+		}
+		</style>
+	</head>
+	<body>
+		<h1>Node Management Interface</h1>
+
+		<div class="container">
+			<h2>API Key Configuration</h2>
+			<form id="apiKeyForm">
+				<label for="apiKey">API Key:</label>
+				<input type="text" id="apiKey" name="apiKey" value="{{ api_key }}">
+				<button type="submit">Save API Key</button>
+			</form>
+			<div id="apiKeyStatus" class="status" style="display: none;"></div>
+		</div>
+
+		<div class="container">
+			<h2>Software Updates</h2>
+			<button id="checkUpdatesButton">Check for Updates</button>
+			<button id="updateButton" disabled>Update and Restart</button>
+			<div id="updateStatus" class="status" style="display: none;"></div>
+		</div>
+
+		<script>
+			document.addEventListener('DOMContentLoaded', function() {
+				// API Key Form
+				const apiKeyForm = document.getElementById('apiKeyForm');
+				const apiKeyStatus = document.getElementById('apiKeyStatus');
+
+				apiKeyForm.addEventListener('submit', function(e) {
+					e.preventDefault();
+
+					const apiKey = document.getElementById('apiKey').value;
+
+					fetch('/save_api_key', {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/x-www-form-urlencoded',
+						},
+						body: 'api_key=' + encodeURIComponent(apiKey)
+					})
+						.then(response => response.json())
+						.then(data => {
+							if (data.success) {
+								apiKeyStatus.textContent = 'API key saved successfully.';
+								apiKeyStatus.className = 'status success';
+							} else {
+								apiKeyStatus.textContent = 'Error saving API key: ' + data.error;
+								apiKeyStatus.className = 'status error';
+							}
+							apiKeyStatus.style.display = 'block';
+
+							setTimeout(() => {
+								apiKeyStatus.style.display = 'none';
+							}, 3000);
+						})
+						.catch(error => {
+							apiKeyStatus.textContent = 'Error: ' + error.message;
+							apiKeyStatus.className = 'status error';
+							apiKeyStatus.style.display = 'block';
+						});
+				});
+
+				// Update System
+				const checkUpdatesButton = document.getElementById('checkUpdatesButton');
+				const updateButton = document.getElementById('updateButton');
+				const updateStatus = document.getElementById('updateStatus');
+
+				checkUpdatesButton.addEventListener('click', function() {
+					updateStatus.textContent = 'Checking for updates...';
+					updateStatus.className = 'status info';
+					updateStatus.style.display = 'block';
+
+					fetch('/check_updates')
+						.then(response => response.json())
+						.then(data => {
+							if (data.error) {
+								updateStatus.textContent = 'Error checking for updates: ' + data.error;
+								updateStatus.className = 'status error';
+								return;
+							}
+
+							if (data.has_updates) {
+								updateStatus.textContent = `Updates available! Remote commit: ${data.remote_commit}, Current commit: ${data.current_commit}`;
+								updateStatus.className = 'status success';
+								updateButton.disabled = false;
+								updateButton.classList.add('has-updates');
+							} else {
+								updateStatus.textContent = 'Your system is up to date.';
+								updateStatus.className = 'status info';
+								updateButton.disabled = true;
+								updateButton.classList.remove('has-updates');
+							}
+						})
+						.catch(error => {
+							updateStatus.textContent = 'Error: ' + error.message;
+							updateStatus.className = 'status error';
+						});
+				});
+
+				updateButton.addEventListener('click', function() {
+					if (updateButton.disabled) return;
+
+					updateStatus.textContent = 'Updating and restarting the application...';
+					updateStatus.className = 'status info';
+
+					fetch('/update_and_restart')
+						.then(response => response.json())
+						.then(data => {
+							if (data.error) {
+								updateStatus.textContent = 'Error during update: ' + data.error;
+								updateStatus.className = 'status error';
+							} else {
+								updateStatus.textContent = data.message;
+								updateStatus.className = 'status success';
+								updateButton.disabled = true;
+								updateButton.classList.remove('has-updates');
+							}
+						})
+						.catch(error => {
+							updateStatus.textContent = 'Error: ' + error.message;
+							updateStatus.className = 'status error';
+						});
+				});
+
+			});
+		</script>
+	</body>
+</html>
