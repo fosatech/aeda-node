@@ -2,6 +2,7 @@ __pycache__/
 .librtlsdr-2freq/
 *.log
 *.node_args
+*.old
 *.env
 .venv/
 
