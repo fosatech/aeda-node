@@ -41,8 +41,7 @@ pyee==13.0.0
 pylibsrtp==0.11.0
 pyOpenSSL==25.0.0
 pyparsing==3.2.3
-pyrtlsdr==0.3.0
-pyrtlsdrlib==0.0.3
+pyrtlsdr[lib]
 python-dateutil==2.9.0.post0
 python-dotenv==1.1.0
 python-engineio==4.11.2
