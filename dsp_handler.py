@@ -121,7 +121,7 @@ def next_power_of_2(n):
 
 
 
-def get_psd(sdr, freq, hop, crop_top, spec_size=2):
+def get_psd(sdr, freq, hop, crop_top, spec_size=2, deleted_samps=2048):
 	"""
 	Gets PSD data at center freq
 	"""
@@ -139,7 +139,7 @@ def get_psd(sdr, freq, hop, crop_top, spec_size=2):
 	if N < 1024:
 		N = 1024
 
-	sdr.read_samples(2048)
+	sdr.read_samples(deleted_samps)
 	samples = sdr.read_samples(N)
 
 	normal = True
@@ -181,7 +181,7 @@ def get_psd(sdr, freq, hop, crop_top, spec_size=2):
 
 
 
-async def psd_loop(sdr, start_freq: int, stop_freq: int):
+async def psd_loop(sdr, start_freq: int, stop_freq: int, target_freq, trigger_db, trigger_bw, trigger_active):
 
 	"""
 	Takes an SDR class from RtlSdr()
@@ -190,30 +190,74 @@ async def psd_loop(sdr, start_freq: int, stop_freq: int):
 	"""
 
 	hop_width = 1700000
-
 	send_data = True
 
 	psd = np.array([])
 	freq = np.array([])
 
 	scan_size = stop_freq - start_freq
-
 	scan_steps = hop_width / scan_size
 
-	spec_size = scan_steps * 8192 
+	spec_size = scan_steps * 2048
 	spec_size = next_power_of_2(spec_size)
-	print(f"scan steps: {scan_steps}")
-	print(f"SPEC SIZE: {spec_size}")
+
+	# print(f"scan steps: {scan_steps}")
+	# print(f"SPEC SIZE: {spec_size}")
+
+
+	if trigger_active:
+		if target_freq and trigger_bw:
+			target_freq = float(target_freq) * 1e6
+			trigger_bw = float(trigger_bw) * 1e6
+
+	psd_type = "PSD"
 
 	for i in range(start_freq + int(hop_width / 2), stop_freq + int(hop_width / 2), hop_width):
 		if not stop_sdr:
 			crop_top = 0
+			crop_hz = 0
 			if (i + int(hop_width / 2)) > stop_freq:
 				crop_hz = (i + int(hop_width / 2)) - stop_freq
 				crop_top = (1 / hop_width) * crop_hz
 
 			loop = asyncio.get_running_loop()
-			new_psd = await loop.run_in_executor(None, lambda: get_psd(sdr=sdr, spec_size=spec_size, freq=i, hop=hop_width, crop_top=crop_top))
+			new_psd = await loop.run_in_executor(None, lambda: get_psd(
+				sdr=sdr,
+				spec_size=spec_size,
+				freq=i,
+				hop=hop_width,
+				crop_top=crop_top
+			))
+
+			# check for active trigger
+			if trigger_active:
+
+				trigger_start = target_freq - (trigger_bw / 2)
+				trigger_stop = target_freq + (trigger_bw / 2)
+
+				# lol this sucks
+				if (i - hop_width) < trigger_stop and (i + hop_width) > trigger_start:
+					cropped_hop = hop_width - crop_hz
+					hz_percent = len(new_psd) / cropped_hop
+					scan_start = i - (hop_width / 2)
+					scan_stop = (i + (hop_width / 2)) - crop_hz
+
+					start_diff = int((trigger_start - scan_start) * hz_percent)
+					stop_diff = int((trigger_stop - scan_stop) * hz_percent)
+
+					start_bin = start_diff if start_diff >= 0 else None
+					stop_bin = stop_diff if stop_diff < 0 else None
+
+					triggered = any(x > trigger_db for x in new_psd[start_bin:stop_bin])
+
+					if triggered:
+						print(f"TRIGGERED: {triggered}")
+
+						scan_data = await psd_scan(sdr, target_freq)
+
+						psd_type = "IMG"
+						return scan_data.tolist(), psd_type
+
 			psd = np.append(psd, new_psd)
 		else:
 			sdr.close()
@@ -230,41 +274,30 @@ async def psd_loop(sdr, start_freq: int, stop_freq: int):
 			# naive crop to keep under max canvas width TODO replace with averaging
 			psd_list = [psd_list[i] for i in range(len(psd_list)) if i % int(crop) == 0]
 
-		return psd_list
+		# await asyncio.sleep(1)
+		# print('sending')
+		# print(psd_len)
+
+		return psd_list, psd_type
 
 
 # old function for testing spec segmentation
-async def psd_scan(sdr, center_freq, samps=1024*1024):
+async def psd_scan(sdr, center_freq, samps=1024*256):
 	
 	sdr.center_freq = center_freq
 	sdr.read_samples(2048)
-	S = sdr.read_samples(samps)
-	fft_size = 2048
-	overlap = fft_size // 2
+	S = sdr.read_samples(int(samps))
+	fft_size = 512
+	overlap = int(fft_size * 0.55)
 
 	freq, t, Sxx = signal.spectrogram(S, fs=2.4e6, nperseg=fft_size, noverlap=overlap)
 	Sxx = np.fft.fftshift(Sxx, axes=0)
 	freq = np.fft.fftshift(freq - 2.4e6 / 2)
 	Sxx_dB = 10 * np.log10(Sxx + 1e-12)
 
-	plt.figure(figsize=(Sxx_dB.shape[0]/100, Sxx_dB.shape[1]/100))	# Set figure size to match data dimensions
-	plt.imshow(Sxx_dB.T, aspect='auto', cmap='viridis')
-	plt.axis('off')
-	plt.tight_layout(pad=0)
+	print(f"length: {len(Sxx_dB)}")
 
-	buf = io.BytesIO()
-	plt.savefig(buf, dpi=100, bbox_inches='tight', pad_inches=0)
-	plt.close()
-
-	buf.seek(0)
-	img_byts = buf.getvalue()
-	buf.close()
-
-	print("encoding")
-	encoded = base64.b64encode(img_byts).decode('utf-8')
-	print("encoded")
-
-	return img_byts
+	return Sxx_dB
 
 
 def main(start_freq:int, stop_freq:int):

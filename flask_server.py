@@ -42,8 +42,8 @@ class FlaskServer:
 	def setup_routes(self):
 		@self.app.route('/')
 		def index():
-			api_key = os.getenv('API_KEY', '')
-			return render_template('index.html', api_key=api_key)
+			# api_key = os.getenv('API_KEY', '')
+			return render_template('index.html', api_key=self.api_key)
 
 		@self.app.route('/save_api_key', methods=['POST'])
 		def save_api_key():

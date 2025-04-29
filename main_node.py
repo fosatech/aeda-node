@@ -27,6 +27,11 @@ class SDR_Handler:
 		self.wideband_bandwidth = 5e6
 
 		self.target_freq = None
+		self.trigger_db = None
+		self.trigger_bw = None
+
+		self.trigger_active = False
+
 		self.reference_freq = None
 		self.tdoa_samp_num = 2e6
 
@@ -53,10 +58,35 @@ class SDR_Handler:
 				if not self.sdr:
 					self.sdr = DSP.rtl_config(samp_rate=2.4e6, device_id=int(self.dev_id))
 
-				samp_out = await DSP.psd_loop(self.sdr, start_freq=int(start_freq), stop_freq=int(stop_freq))
-				packeted = msgpack.packb(samp_out, use_bin_type=True)
-				if self.rtc_handler:
+				samp_out, psd_type = await DSP.psd_loop(
+						sdr=self.sdr,
+						start_freq=int(start_freq),
+						stop_freq=int(stop_freq),
+						target_freq=self.target_freq,
+						trigger_db=self.trigger_db,
+						trigger_bw=self.trigger_bw,
+						trigger_active=self.trigger_active
+					)
+
+				if psd_type == "IMG" and self.rtc_handler:
+					self.trigger_active = False
+					bin_size = 16384
+					data_len = len(samp_out)
+
+					for i in range(0, data_len, bin_size):
+						chunk = samp_out[i:i + bin_size]
+						packeted = msgpack.packb({"type": psd_type, "data": chunk}, use_bin_type=True)
+						await self.rtc_handler.send_data(packeted)
+						await asyncio.sleep(0.01)
+
+					packeted = msgpack.packb({"type": psd_type, "data": "complete"}, use_bin_type=True)
 					await self.rtc_handler.send_data(packeted)
+
+				elif psd_type == 'PSD' and self.rtc_handler:
+					packeted = msgpack.packb({"type": psd_type, "data": samp_out}, use_bin_type=True)
+					await self.rtc_handler.send_data(packeted)
+
+
 
 		print("[*] Exiting scan")
 
@@ -125,7 +155,7 @@ class MainNode:
 		self.API_KEY = os.getenv('API_KEY', '')
 
 		with open(".node_args", "w") as f:
-			f.write(f"{dev_id}")
+			f.write(f"{dev_id} {port}")
 
 		self.flask_server = FlaskServer(port=self.console_port)
 
@@ -135,9 +165,17 @@ class MainNode:
 
 		# start flask server
 		self.flask_server.start()
+		signaling_server = ""
 
 
-		signaling_server = "https://olympus.fosa-tech.com"
+		env = os.getenv('NODE_ENV', '')
+		print(f"ENV: {env}")
+		if env == "dev":
+			signaling_server = os.getenv('NODE_SIG_SERV', '')
+		else:
+			signaling_server = "https://olympus.fosa-tech.com"
+
+		print(signaling_server)
 		self.socketio_handler = SignalingClient(signaling_server)
 		self.socketio_handler.API_KEY = self.API_KEY
 
@@ -160,6 +198,9 @@ class MainNode:
 		self.sdr_handler.rtc_handler = self.rtc_handler
 
 		self.rtc_handler.sdr_handler = self.sdr_handler
+
+		# yeah, this is retarded to do with all these callbacks, just a quick fix
+		self.socketio_handler.SDR_HANDLER = self.sdr_handler
 
 		# main loop
 		while True:

@@ -12,6 +12,8 @@ class SignalingClient:
 		# self.nodeId = None
 		self.API_KEY = None
 
+		self.SDR_HANDLER = None
+
 		self.message_callback = None
 		self.start_tdoa_callback = None
 		self.start_scan_callback = None
@@ -108,6 +110,29 @@ class SignalingClient:
 		async def stop_rtc_stream():
 			if self.data_channel_callback:
 				await self.data_channel_callback(False)
+
+
+		@self.sio.on('setTriggerSettings', namespace='/nodes')
+		async def set_trigger_settings(data):
+			print("[*] Changing Trigger Settings")
+			if data and self.SDR_HANDLER:
+				self.SDR_HANDLER.trigger_db = data['dbLevel']
+				self.SDR_HANDLER.trigger_bw = data['bandwidth']
+				self.SDR_HANDLER.target_freq = data['targetFrequency']
+
+
+		@self.sio.on('activateTrigger', namespace='/nodes')
+		async def activate_trigger(data):
+			print("[*] Activating Trigger")
+			if data and self.SDR_HANDLER:
+				self.SDR_HANDLER.trigger_active = True
+
+
+		@self.sio.on('deactivateTrigger', namespace='/nodes')
+		async def deactivate_trigger():
+			print("[*] Deactivating Trigger")
+			if self.SDR_HANDLER:
+				self.SDR_HANDLER.trigger_active = False
 
 
 	async def emit_with_response(self, event, data, namespace=None):
