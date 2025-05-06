@@ -5,6 +5,7 @@ import sys
 import base64
 import numpy as np
 import matplotlib.pyplot as plt
+from PIL import Image
 from rtlsdr import RtlSdr
 from scipy import signal
 
@@ -144,7 +145,7 @@ def get_psd(sdr, freq, hop, crop_top, spec_size=2, deleted_samps=2048):
 
 	normal = True
 
-	# These will be updated soon, but work well enough for now
+	# These will be updated soon, but works well enough for now
 	if normal:
 
 		window = signal.windows.hann(N)
@@ -201,8 +202,6 @@ async def psd_loop(sdr, start_freq: int, stop_freq: int, target_freq, trigger_db
 	spec_size = scan_steps * 2048
 	spec_size = next_power_of_2(spec_size)
 
-	# print(f"scan steps: {scan_steps}")
-	# print(f"SPEC SIZE: {spec_size}")
 
 
 	if trigger_active:
@@ -253,10 +252,10 @@ async def psd_loop(sdr, start_freq: int, stop_freq: int, target_freq, trigger_db
 					if triggered:
 						print(f"TRIGGERED: {triggered}")
 
-						scan_data = await psd_scan(sdr, target_freq)
+						scan_data = await psd_scan(sdr=sdr, center_freq=target_freq, bandwidth=trigger_bw)
 
 						psd_type = "IMG"
-						return scan_data.tolist(), psd_type
+						return scan_data, psd_type
 
 			psd = np.append(psd, new_psd)
 		else:
@@ -274,30 +273,72 @@ async def psd_loop(sdr, start_freq: int, stop_freq: int, target_freq, trigger_db
 			# naive crop to keep under max canvas width TODO replace with averaging
 			psd_list = [psd_list[i] for i in range(len(psd_list)) if i % int(crop) == 0]
 
-		# await asyncio.sleep(1)
-		# print('sending')
-		# print(psd_len)
-
 		return psd_list, psd_type
 
 
-# old function for testing spec segmentation
-async def psd_scan(sdr, center_freq, samps=1024*256):
-	
-	sdr.center_freq = center_freq
-	sdr.read_samples(2048)
-	S = sdr.read_samples(int(samps))
-	fft_size = 512
-	overlap = int(fft_size * 0.55)
+def convert_image_to_base64(image_buf):
+	"""Convert a PIL Image buffer to base64 string"""
+	# Get the binary data from the buffer
+	img_data = image_buf.getvalue()
 
-	freq, t, Sxx = signal.spectrogram(S, fs=2.4e6, nperseg=fft_size, noverlap=overlap)
-	Sxx = np.fft.fftshift(Sxx, axes=0)
-	freq = np.fft.fftshift(freq - 2.4e6 / 2)
-	Sxx_dB = 10 * np.log10(Sxx + 1e-12)
+	# Encode as base64
+	base64_encoded = base64.b64encode(img_data).decode('utf-8')
 
-	print(f"length: {len(Sxx_dB)}")
+	return base64_encoded
 
-	return Sxx_dB
+
+async def psd_scan(sdr, center_freq, bandwidth, samps=None):
+
+	samp_rate = 2.048e6
+	num_rows = 512
+	x = None
+
+	if samps:
+		x = samps
+	else:
+		record_time = 1 #sec
+
+		total_samples = int(samp_rate * record_time)
+
+		sdr.center_freq = center_freq
+
+		sdr.read_samples(2048)
+		x = sdr.read_samples(total_samples)
+
+	x = x - np.mean(x)
+
+	spectrogram_width = bandwidth
+
+	bin_width = spectrogram_width / num_rows
+	fft_size = int(np.round(sdr.sample_rate / bin_width))
+	hop = int(total_samples / num_rows)
+
+	spectrogram = np.zeros((num_rows, num_rows))
+
+	for i in range(num_rows):
+		start = i * hop
+		if start + fft_size > total_samples:
+			break
+		window = x[start:start + fft_size]
+		fft = np.fft.fftshift(np.fft.fft(window))
+		center = fft_size // 2
+		spectrogram[i, :] = 10 * np.log10(np.abs(fft[center - 256:center + 256]) ** 2)
+
+
+	plt.figure(figsize=(512/100, 512/100), dpi=100)
+	plt.axis('off')
+	plt.gca().set_position([0, 0, 1, 1])
+	plt.imshow(spectrogram, aspect='auto')
+
+	buf = io.BytesIO()
+	plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
+	plt.close()
+	buf.seek(0)
+
+	binary_data = buf.getvalue()
+
+	return binary_data
+
 
 
 def main(start_freq:int, stop_freq:int):
@@ -309,6 +350,7 @@ def main(start_freq:int, stop_freq:int):
 
  
 if __name__ == '__main__':
-	asyncio.run(main(850, 900))
+	pass
+	# asyncio.run(main(850, 900))
 
 

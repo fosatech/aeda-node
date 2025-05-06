@@ -40,10 +40,21 @@ class SDR_Handler:
 
 		self.sdr_lock = asyncio.Lock()
 
-	async def capture_spectrogram(self):
+	async def capture_spectrogram(self, samps=None):
 
-		self.sdr = DSP.rtl_config(samp_rate=2.4e6)
-		scan_output = await DSP.psd_scan(sdr=self.sdr, center_freq=91e6)
+		if self.rtc_handler and samps:
+			samp_out = await DSP.psd_scan(samps)
+			bin_size = 16384
+			data_len = len(samp_out)
+
+			for i in range(0, data_len, bin_size):
+				chunk = samp_out[i:i + bin_size]
+				packeted = msgpack.packb({"type": psd_type, "data": chunk}, use_bin_type=True)
+				await self.rtc_handler.send_data(packeted)
+				await asyncio.sleep(0.01)
+
+			packeted = msgpack.packb({"type": psd_type, "data": "complete"}, use_bin_type=True)
+			await self.rtc_handler.send_data(packeted)
 
 	async def start_wideband(self):
 		print("[*] starting wideband")
@@ -135,6 +146,9 @@ class SDR_Handler:
 
 				packeted_end = msgpack.packb(end_pack, use_bin_type=True)
 				await self.ws_handler.send_message('tdoaOut', packeted_end)
+
+				# will enable to send spectrograms to AEDA
+				# await self.capture_spectrogram(samps=samp_out[:N*2])
 			except Exception as e:
 				print(e)
 
