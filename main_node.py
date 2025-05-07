@@ -187,7 +187,7 @@ class MainNode:
 		if env == "dev":
 			signaling_server = os.getenv('NODE_SIG_SERV', '')
 		else:
-			signaling_server = "https://olympus.fosa-tech.com"
+			signaling_server = "https://aeda.fosa-tech.com"
 
 		print(signaling_server)
 		self.socketio_handler = SignalingClient(signaling_server)

@@ -18,9 +18,9 @@ sleep 2
 if [ -f "$DIR/run.py" ]; then
 	RUN_SCRIPT="$DIR/run.py"
 	log "Found run.py in: $DIR"
-elif [ -f "$DIR/olympus-node/run.py" ]; then
-	RUN_SCRIPT="$DIR/olympus-node/run.py"
-	log "Found run.py in: $DIR/olympus-node"
+elif [ -f "$DIR/aeda-node/run.py" ]; then
+	RUN_SCRIPT="$DIR/aeda-node/run.py"
+	log "Found run.py in: $DIR/aeda-node"
 else
 	FOUND_SCRIPT=$(find "$DIR" -name "run.py" -type f | head -n 1)
 	if [ -n "$FOUND_SCRIPT" ]; then
