@@ -154,7 +154,14 @@ class SignalingClient:
 	
 	async def connect(self):
 		print(f"Connecting to signaling server at {self.server_url}")
-		await self.sio.connect(self.server_url, namespaces=['/nodes'])
+		while True:
+			try:
+				await self.sio.connect(self.server_url, namespaces=['/nodes'])
+				print("Successfully connected to signaling server")
+				break
+			except socketio.exceptions.ConnectionError as e:
+				print(f"Connection failed: {e}. Retrying in 10 seconds...")
+				await asyncio.sleep(10)
 
 
 	async def send_message(self, header, message):
